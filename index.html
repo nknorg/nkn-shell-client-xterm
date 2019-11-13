@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.2.0/css/xterm.min.css" />
+</head>
+<body>
+  <div class="container">
+    <h4 class="center-align" id="title">NKN Shell Client</h4>
+    <div id="no-key-pair">
+      <div class="input-field">
+        <input placeholder="Secret Seed" id="seed-input" type="text">
+      </div>
+      <label>
+        <input type="checkbox" checked="checked" id="remember-key-check" />
+        <span>Remember Key Pair</span>
+      </label>
+      <div class="center-align" style="padding:20px">
+        <a class="waves-effect waves-light btn" id="load-key-btn">Load Key Pair From Seed</a>
+        <span style="padding:20px">Or</span>
+        <a class="waves-effect waves-light btn blue" id="generate-key-btn">Generate New Key Pair</a>
+      </div>
+    </div>
+
+    <div id="has-key-pair" style="display:none">
+      <div>Secret Seed: <span id="seed-display"></span></div>
+      <div>Public Key: <span id="pubkey-display"></span></div>
+      <div style="font-weight: bold">Please make sure this public key is in remote nshd's authorized_pubkeys file!</div>
+      <div class="center-align" style="padding:20px">
+        <a class="waves-effect waves-light btn red" id="clear-key-btn">Clear Key Pair</a>
+      </div>
+
+      <div class="input-field">
+        <input placeholder="Remote nshd address" id="nshd-address-input" type="text">
+        <label for="nshd-address-input">Remote nshd address</label>
+      </div>
+      <div class="input-field">
+        <input placeholder="Client identifier (optional)" id="identifier-input" type="text">
+        <label for="identifier-input">Client identifier (optional)</label>
+      </div>
+      <label>
+        <input type="checkbox" checked="checked" id="remember-addr-identifier-check" />
+        <span>Remember address and identifier</span>
+      </label>
+      <div class="center-align">
+        <a class="waves-effect waves-light btn" id="connect-btn">Connect</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="terminal" style="width:0px" class="center-align"></div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      let wallet;
+
+      function loadKeyPair(seed, save) {
+        try {
+          wallet = nknWallet.restoreWalletBySeed(seed, 'password');
+          if (save) {
+            localStorage.setItem('nsh-seed', seed);
+          }
+          document.getElementById('seed-display').textContent = seed;
+          document.getElementById('pubkey-display').textContent = wallet.getPublicKey();
+          document.getElementById('no-key-pair').style.display = 'none';
+          document.getElementById('has-key-pair').style.display = '';
+          document.getElementById('seed-input').value = '';
+        } catch (e) {
+          alert(e);
+        }
+      }
+
+      function clearKeyPair() {
+        wallet = null;
+        localStorage.removeItem('nsh-seed');
+        document.getElementById('seed-display').textContent = '';
+        document.getElementById('pubkey-display').textContent = '';
+        document.getElementById('no-key-pair').style.display = '';
+        document.getElementById('has-key-pair').style.display = 'none';
+      }
+
+      function connect() {
+        let remoteAddr = document.getElementById('nshd-address-input').value;
+        if (remoteAddr.length === 0) {
+          return
+        }
+
+        let identifier = document.getElementById('identifier-input').value;
+
+        document.getElementById('no-key-pair').style.display = 'none';
+        document.getElementById('has-key-pair').style.display = 'none';
+        document.getElementById('title').style.display = 'none';
+
+        let client = nkn({
+          seed: wallet.getSeed(),
+          identifier: identifier,
+        });
+
+        let term = new Terminal({
+          cols: 120,
+          rows: 30,
+        });
+        term.open(document.getElementById('terminal'));
+        document.body.style.backgroundColor='black';
+
+        term.onKey((e) => {
+          client.send(remoteAddr, JSON.stringify({ cmd: e.key }));
+        });
+
+        client.on('connect', () => {
+          client.send(remoteAddr, JSON.stringify({
+            cmd: '\x0c',
+          }))
+        });
+
+        client.on('message', (src, payload, payloadType, encrypt) => {
+          term.write(JSON.parse(payload).stdout);
+        });
+
+        if (document.getElementById('remember-addr-identifier-check').checked) {
+          localStorage.setItem('nsh-remoteAddr', remoteAddr);
+          localStorage.setItem('nsh-identifier', identifier);
+        }
+      }
+
+      document.getElementById('load-key-btn').onclick = () => {
+        let seed = document.getElementById('seed-input').value;
+        if (seed.length === 0) {
+          return
+        }
+        loadKeyPair(seed, document.getElementById('remember-key-check').checked);
+      }
+
+      document.getElementById('generate-key-btn').onclick = () => {
+        loadKeyPair(nknWallet.newWallet('password').getSeed(), document.getElementById('remember-key-check').checked);
+      }
+
+      document.getElementById('clear-key-btn').onclick = () => {
+        if (window.confirm("Do you really want to clear key pair? You won't be able to get it again if you haven't save the secret seed!")) {
+          clearKeyPair();
+        }
+      }
+
+      document.getElementById('connect-btn').onclick = connect;
+
+      document.getElementById('remember-key-check').onchange = function () {
+        localStorage.setItem('nsh-remember-key', this.checked);
+        if (!this.checked) {
+          localStorage.removeItem('nsh-seed');
+        }
+      }
+
+      document.getElementById('remember-addr-identifier-check').onchange = function () {
+        localStorage.setItem('nsh-remember-addr-identifier', this.checked);
+        if (!this.checked) {
+          localStorage.removeItem('nsh-remoteAddr');
+          localStorage.removeItem('nsh-identifier');
+        }
+      }
+
+      let rememberKey = localStorage.getItem('nsh-remember-key');
+      if (rememberKey !== null) {
+        document.getElementById('remember-key-check').checked = (rememberKey === 'true');
+      }
+
+      let rememberAddrIdentifier = localStorage.getItem('nsh-remember-addr-identifier');
+      if (rememberAddrIdentifier !== null) {
+        document.getElementById('remember-addr-identifier-check').checked = (rememberAddrIdentifier === 'true');
+      }
+
+      let remoteAddr = localStorage.getItem('nsh-remoteAddr');
+      if (remoteAddr) {
+        document.getElementById('nshd-address-input').value = remoteAddr;
+      }
+
+      let identifier = localStorage.getItem('nsh-identifier');
+      if (identifier) {
+        document.getElementById('identifier-input').value = identifier;
+      }
+
+      let value = localStorage.getItem('nsh-seed');
+      if (value) {
+        loadKeyPair(value, false);
+      } else {
+        clearKeyPair();
+      }
+    });
+  </script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@4.2.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nkn-wallet@0.4.7/dist/nkn-wallet.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nkn-multiclient@0.0.8/dist/nkn-multiclient.min.js"></script>
+</body>
+</html>
