@@ -105,6 +105,7 @@
         term.loadAddon(fitAddon);
         term.open(document.getElementById('terminal'));
         fitAddon.fit();
+        term.focus();
 
         let resizeId;
         window.addEventListener('resize', () => {
@@ -118,6 +119,10 @@
 
         term.onKey((e) => {
           client.send(remoteAddr, JSON.stringify({ cmd: e.key }));
+        });
+
+        term.textarea.addEventListener('paste', (e) => {
+          client.send(remoteAddr, JSON.stringify({ cmd: e.clipboardData.getData('text/plain') }));
         });
 
         client.on('connect', () => {
