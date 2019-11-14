@@ -51,7 +51,7 @@
     </div>
   </div>
 
-  <div id="terminal" style="width:0px" class="center-align"></div>
+  <div id="terminal" style="width:100vw;height:100vh" class="center-align"></div>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
@@ -93,18 +93,28 @@
         document.getElementById('no-key-pair').style.display = 'none';
         document.getElementById('has-key-pair').style.display = 'none';
         document.getElementById('title').style.display = 'none';
+        document.body.style.backgroundColor='black';
 
         let client = nkn({
           seed: wallet.getSeed(),
           identifier: identifier,
         });
 
-        let term = new Terminal({
-          cols: 120,
-          rows: 30,
-        });
+        let term = new Terminal();
+        let fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
         term.open(document.getElementById('terminal'));
-        document.body.style.backgroundColor='black';
+        fitAddon.fit();
+
+        let resizeId;
+        window.addEventListener('resize', () => {
+          clearTimeout(resizeId);
+          resizeId = setTimeout(fitAddon.fit.bind(fitAddon), 500);
+        });
+
+        term.onResize((size) => {
+          client.send(remoteAddr, JSON.stringify({ resize: size }))
+        });
 
         term.onKey((e) => {
           client.send(remoteAddr, JSON.stringify({ cmd: e.key }));
@@ -112,6 +122,7 @@
 
         client.on('connect', () => {
           client.send(remoteAddr, JSON.stringify({
+            resize: { cols: term.cols, rows: term.rows },
             cmd: '\x0c',
           }))
         });
@@ -192,6 +203,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@4.2.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.3.0/lib/xterm-addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/nkn-wallet@0.4.7/dist/nkn-wallet.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/nkn-multiclient@0.0.8/dist/nkn-multiclient.min.js"></script>
 </body>
